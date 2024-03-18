@@ -18,53 +18,18 @@ class PersonAgent(mg.GeoAgent):
         self.life_time=0
         self.initialize()
         self.count_agents()
-    
-    def __repr__(self):
-        return "PersonAgent_"+str(self.unique_id)
 
+    def set_idle(self):
+        pass
+    
     def count_agents(self):
         """Count agents in the model."""
         self.model.counts[self.state] += 1
         self.model.counts[self.atype] += 1
 
-    def set_idle(self):
-        if self.atype=='patient': self.state='resting'
-        elif self.atype=='nurse': self.state='idle_nurse'
-        elif self.atype=='doctor': self.state='idle_doctor'
-        self.path=[]
-
     def initialize(self):
         """Set time to stop being active and schedule initial actions."""
-        if self.atype == 'patient':
-            self.nurse=None; self.doctor=None
-            self.life_time=self.model.patient_stay_length
-            self.scheduler.add_scheduled_task(action='request-admission')
-            self.scheduler.add_scheduled_task(action='request-evaluation', 
-                                              freq=self.model.evaluation_frequency)
-            self.scheduler.add_scheduled_task(action='request-medication',
-                                              execute_in=self.model.next_medication_time,
-                                              freq=self.own_medication_frequency)
-        
-        elif self.atype == 'nurse':
-            self.model.nurses.append(self)
-            self.start_shift()
-            self.scheduler.add_scheduled_task(action='do-inventory',
-                                          route=[self.model.space.medication_station], 
-                                          duration=self.model.inventory_time)
-            self.scheduler.add_scheduled_task(action='do-document',
-                                              route=[self.model.space.nurse_station], 
-                                              duration=self.model.documentation_time)
-        elif self.atype=='doctor':
-            self.model.doctors.append(self)
-            self.start_shift()
-        else: raise NameError('AgentTypeNotDefined')
-
-    def start_shift(self):
-        self.life_time=self.model.shift_length
-        self.patients=[]
-        self.scheduler.add_scheduled_task(action='do-informative-meeting',
-                                          route=[self.model.space.nurse_station], 
-                                          duration=self.model.shift_transfer_meeting_time)
+        pass
 
     def step(self):
         """Advance one step"""
@@ -107,13 +72,6 @@ class PersonAgent(mg.GeoAgent):
             self.link_paths(route)
             self.state='walking'
             self.scheduler.hold_current_action = True # hold current task while walking
-
-    def register_patient(self):
-        # assign to doctor & nurse with least patients
-        doctor=sorted(self.model.doctors, key=lambda doc: len(doc.patients))[0]
-        nurse=sorted(self.model.nurses, key=lambda nurse: len(nurse.patients))[0]
-        nurse.patients.append(self); doctor.patients.append(self)
-        self.doctor=doctor; self.nurse=nurse
         
     def compare_placement(self, other_agent) -> bool:
         """Return True if the agent is within radious of the other_agent"""
@@ -168,18 +126,20 @@ class PersonAgent(mg.GeoAgent):
         
     def remove(self):
         """Remove agent from model and space."""
-        # if patient, remove and trigger next patient's arrival
-        if self.atype=='patient':
-            self.doctor.patients.remove(self); self.nurse.patients.remove(self)
-            self.model.schedule.patient_arrivals.append(self.model.schedule.steps + int(self.model.time_between_patients))
-        # if other, remove and trigger replacement on next shift
-        elif self.atype=='nurse': 
-            self.transfer_workload(self.model.ac_nurses)
-            self.model.nurses.remove(self)
-        elif self.atype=='doctor':
-            self.transfer_workload(self.model.ac_doctors)
-            self.model.doctors.remove(self)
-        self.model.hit_list.append(self)
+        self.model.hit_list.append(self)        
+                
+class HealthcareAgent(PersonAgent):
+
+    def __init__(self, unique_id, model, geometry, crs, agent_type):
+        """Create a new Person agent."""
+        super().__init__(unique_id, model, geometry, crs, agent_type)
+
+    def start_shift(self):
+        self.life_time=self.model.shift_length
+        self.patients=[]
+        self.scheduler.add_scheduled_task(action='do-informative-meeting',
+                                          route=[self.model.space.nurse_station], 
+                                          duration=self.model.shift_transfer_meeting_time)
 
     def transfer_workload(self, agentCreator):
         new_worker = self.model.add_PersonAgents(agentCreator, 1, self.model.space.nurse_station, do_shift_takeover=True)
@@ -188,3 +148,97 @@ class PersonAgent(mg.GeoAgent):
         for patient in self.patients:
             if patient.nurse==self: patient.nurse=new_worker
             elif patient.doctor==self: patient.doctor=new_worker
+                
+class NurseAgent(HealthcareAgent):
+
+    def __init__(self, unique_id, model, geometry, crs):
+        """Create a new Person agent."""
+        super().__init__(unique_id, model, geometry, crs, 'nurse')
+    
+    def __repr__(self):
+        return "NurseAgent_"+str(self.unique_id)
+
+    def set_idle(self):
+        self.state='idle_nurse'
+        self.path=[]
+
+    def initialize(self):
+        """Set time to stop being active and schedule initial actions."""
+        self.model.nurses.append(self)
+        self.start_shift()
+        self.scheduler.add_scheduled_task(action='do-inventory',
+                                      route=[self.model.space.medication_station], 
+                                      duration=self.model.inventory_time)
+        self.scheduler.add_scheduled_task(action='do-document',
+                                          route=[self.model.space.nurse_station], 
+                                          duration=self.model.documentation_time)
+        
+    def remove(self):
+        """Remove agent from model and space."""
+        # if patient, remove and trigger next patient's arrival
+        self.transfer_workload(self.model.ac_nurses)
+        self.model.nurses.remove(self)
+        super().remove()
+
+                
+class DoctorAgent(HealthcareAgent):
+
+    def __init__(self, unique_id, model, geometry, crs):
+        """Create a new Person agent."""
+        super().__init__(unique_id, model, geometry, crs, 'doctor')
+
+    
+    def __repr__(self):
+        return "DoctorAgent_"+str(self.unique_id)
+
+    def set_idle(self):
+        self.state='idle_doctor'
+        self.path=[]
+
+    def initialize(self):
+        """Set time to stop being active and schedule initial actions."""
+        self.model.doctors.append(self)
+        self.start_shift()
+        
+    def remove(self):
+        """Remove agent from model and space."""
+        self.transfer_workload(self.model.ac_doctors)
+        self.model.doctors.remove(self)
+        super().remove()
+        
+class PatientAgent(PersonAgent):
+
+    def __init__(self, unique_id, model, geometry, crs):
+        """Create a new Person agent."""
+        super().__init__(unique_id, model, geometry, crs, 'patient')
+    
+    def __repr__(self):
+        return "PatientAgent_"+str(self.unique_id)
+
+    def set_idle(self):
+        self.state='resting'
+        self.path=[]
+
+    def initialize(self):
+        """Set time to stop being active and schedule initial actions."""
+        self.nurse=None; self.doctor=None
+        self.life_time=self.model.patient_stay_length
+        self.scheduler.add_scheduled_task(action='request-admission')
+        self.scheduler.add_scheduled_task(action='request-evaluation', 
+                                          freq=self.model.evaluation_frequency)
+        self.scheduler.add_scheduled_task(action='request-medication',
+                                          execute_in=self.model.next_medication_time,
+                                          freq=self.own_medication_frequency)
+
+    def register_patient(self):
+        # assign to doctor & nurse with least patients
+        doctor=sorted(self.model.doctors, key=lambda doc: len(doc.patients))[0]
+        nurse=sorted(self.model.nurses, key=lambda nurse: len(nurse.patients))[0]
+        nurse.patients.append(self); doctor.patients.append(self)
+        self.doctor=doctor; self.nurse=nurse
+        
+    def remove(self):
+        """Remove agent from model and space."""
+        self.doctor.patients.remove(self); self.nurse.patients.remove(self)
+        self.model.schedule.patient_arrivals.append(self.model.schedule.steps + int(self.model.time_between_patients))
+        super().remove()

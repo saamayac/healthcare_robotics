@@ -1,7 +1,7 @@
 import mesa
 import mesa_geo as mg
 
-from agents.PersonAgent import PersonAgent
+from agents.PersonAgent import NurseAgent, DoctorAgent, PatientAgent
 from agents.SpaceAgent import SpaceAgent
 from agents.HospitalAgent import HospitalAgent
 from model.Schedulers import HospitalScheduler
@@ -113,9 +113,9 @@ class GeoModel(mesa.Model):
     def init_poputation(self, n_doctors, n_nurses, n_patients):
         """Add population to model."""
         # AgentCreators
-        self.ac_doctors = mg.AgentCreator( PersonAgent, model=self, crs=self.space.crs, agent_kwargs={'agent_type': 'doctor'})
-        self.ac_nurses = mg.AgentCreator( PersonAgent, model=self, crs=self.space.crs, agent_kwargs={'agent_type': 'nurse'})
-        self.ac_patients = mg.AgentCreator( PersonAgent, model=self, crs=self.space.crs, agent_kwargs={'agent_type': 'patient'})
+        self.ac_doctors = mg.AgentCreator( DoctorAgent, model=self, crs=self.space.crs)
+        self.ac_nurses = mg.AgentCreator( NurseAgent, model=self, crs=self.space.crs)
+        self.ac_patients = mg.AgentCreator( PatientAgent, model=self, crs=self.space.crs)
         # add agents
         self.add_PersonAgents(self.ac_doctors, n_doctors, self.space.nurse_station)
         self.add_PersonAgents(self.ac_nurses, n_nurses, self.space.nurse_station)
@@ -139,6 +139,7 @@ class GeoModel(mesa.Model):
 
     def step(self):
         """Run one step of the model."""
+        print(f'GeoModel: {100*self.schedule.steps/(self.number_shifts*self.shift_length):.2f}%', end='\r')
         self.reset_counts()
         self.schedule.step()
         while len(self.hit_list) > 0:
@@ -153,4 +154,5 @@ class GeoModel(mesa.Model):
         # stop criteria
         if self.schedule.steps>=self.number_shifts*self.shift_length:
             self.running = False
+            print(f'GeoModel: run completed')
             

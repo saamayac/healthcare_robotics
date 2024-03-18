@@ -56,7 +56,7 @@ class DStarLite:
         Node(-1, -1, math.sqrt(2))
     ]
 
-    def __init__(self, floor, zoom_factor=1):
+    def __init__(self, floor, zoom_factor=1, verbose: bool = False):
         # turn hospital floorplan into a path-grid for D* implementation
         self.floor_PxlObject = pixelate_floorplan(floor, zoom_factor=zoom_factor)
         ox, oy = self.floor_PxlObject.ox, self.floor_PxlObject.oy
@@ -86,6 +86,8 @@ class DStarLite:
             self.detected_obstacles_for_plotting_x = list()  # type: ignore
             self.detected_obstacles_for_plotting_y = list()  # type: ignore
         self.initialized = False
+        
+        self.verbose = verbose
     
     def create_grid(self, val: float):
         return np.full((self.x_max, self.y_max), val)
@@ -159,7 +161,8 @@ class DStarLite:
         self.goal.y = goal.y - self.y_min_world
         if not self.initialized:
             self.initialized = True
-            print('Initializing')
+            if self.verbose:
+                print('Initializing')
             self.U = list()  # Would normally be a priority queue
             self.km = 0.0
             self.rhs = self.create_grid(math.inf)
@@ -273,7 +276,8 @@ class DStarLite:
         pathx = []
         pathy = []
         self.initialize(start, goal)
-        print('calculating path')
+        if self.verbose:
+            print('calculating path')
         last = self.start
         self.compute_shortest_path()
         pathx.append(self.start.x + self.x_min_world)
@@ -281,7 +285,8 @@ class DStarLite:
 
         while not compare_coordinates(self.goal, self.start):
             if self.g[self.start.x][self.start.y] == math.inf:
-                print("No path possible")
+                if self.verbose:
+                    print("No path possible")
                 return False, []
             self.start = min(self.succ(self.start),
                              key=lambda sprime:
@@ -292,7 +297,8 @@ class DStarLite:
             
             changed_vertices = self.detect_changes()
             if len(changed_vertices) != 0:
-                print("New obstacle detected")
+                if self.verbose:
+                    print("New obstacle detected")
                 self.km += self.h(last)
                 last = self.start
                 for u in changed_vertices:
@@ -302,8 +308,8 @@ class DStarLite:
                     self.g[u.x][u.y] = math.inf
                     self.update_vertex(u)
                 self.compute_shortest_path()
-
-        print("Path found")
+        if self.verbose:
+            print("Path found")
         # depixelate path
         stepByStep_Path=self.floor_PxlObject.depixelate(np.array([pathx, pathy]).T)
 
