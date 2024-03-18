@@ -1,0 +1,10 @@
+{
+    "folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../mesa-examples/gis/agents_and_networks"
+		}
+	]
+}
